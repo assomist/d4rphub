@@ -179,10 +179,8 @@ end
 
 local MainFrame = GUI:Load()
 
--- Souris toujours visible quand UI ouvert
+-- Souris toujours visible
 UserInputService.MouseIconEnabled = true
-MainFrame:OnOpen(function() UserInputService.MouseIconEnabled = true end)
-MainFrame:OnClose(function() UserInputService.MouseIconEnabled = true end)
 
 -- Guards nil pour ESP/Aimbot (si leur chargement a échoué)
 local ESP_DeveloperSettings = ESP and ESP.DeveloperSettings or {}
