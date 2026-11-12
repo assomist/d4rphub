@@ -2096,6 +2096,7 @@ MiscSection:Button({
 
 
 do -- Blox Fruits Tab (toujours actif)
+    local BF_Ready = false  -- bloque les callbacks au chargement initial
     local BF_Players = game:GetService("Players")
     local BF_LP = BF_Players.LocalPlayer
     local BF_RS = game:GetService("RunService")
@@ -2818,6 +2819,7 @@ do -- Blox Fruits Tab (toujours actif)
         Content = BF_IslandNames,
         Default = BF_IslandNames[1],
         Callback = function(Value)
+            if not BF_Ready then return end
             local root = getBFRoot()
             local data = BF_MobsByIsland[Value]
             if root and data then
@@ -2886,7 +2888,7 @@ do -- Blox Fruits Tab (toujours actif)
         Flag = "BF_Boss_S1",
         Content = BF_Sea1BossNames,
         Default = BF_Sea1BossNames[1],
-        Callback = function(Value) tpToBoss("SEA 1", Value) end
+        Callback = function(Value) if BF_Ready then tpToBoss("SEA 1", Value) end end
     })
 
     BF_BossSection:Dropdown({
@@ -2894,7 +2896,7 @@ do -- Blox Fruits Tab (toujours actif)
         Flag = "BF_Boss_S2",
         Content = BF_Sea2BossNames,
         Default = BF_Sea2BossNames[1],
-        Callback = function(Value) tpToBoss("SEA 2", Value) end
+        Callback = function(Value) if BF_Ready then tpToBoss("SEA 2", Value) end end
     })
 
     BF_BossSection:Dropdown({
@@ -2902,7 +2904,7 @@ do -- Blox Fruits Tab (toujours actif)
         Flag = "BF_Boss_S3",
         Content = BF_Sea3BossNames,
         Default = BF_Sea3BossNames[1],
-        Callback = function(Value) tpToBoss("SEA 3", Value) end
+        Callback = function(Value) if BF_Ready then tpToBoss("SEA 3", Value) end end
     })
 
     BF_BossSection:Dropdown({
@@ -2910,7 +2912,7 @@ do -- Blox Fruits Tab (toujours actif)
         Flag = "BF_Boss_Raid",
         Content = BF_RaidBossNames,
         Default = BF_RaidBossNames[1],
-        Callback = function(Value) tpToBoss("RAID", Value) end
+        Callback = function(Value) if BF_Ready then tpToBoss("RAID", Value) end end
     })
 
     BF_BossSection:Toggle({
@@ -3002,14 +3004,10 @@ do -- Blox Fruits Tab (toujours actif)
         Content = BF_AllQuestNames,
         Default = BF_AllQuestNames[1],
         Callback = function(Value)
+            if not BF_Ready then return end
             local boss, island = getBossForQuest(Value)
             if boss then
-                local idata = BF_MobsByIsland[island]
-                local root = getBFRoot()
-                if root and idata then
-                    root.CFrame = CFrame.new(idata.pos + Vector3.new(0, 5, 0))
-                end
-                warn(string.format("[D4rpHub] Quête: %s | Boss: %s | Île: %s", Value, boss, island or "?"))
+                warn(string.format("[D4rpHub] Quête sélectionnée: %s | Boss: %s | Île: %s", Value, boss, island or "?"))
             end
         end
     })
@@ -3198,7 +3196,9 @@ do -- Blox Fruits Tab (toujours actif)
             for _, r in next, BF_RaidData do
                 if r.name == Value then
                     BF_SelectedRaid = r
-                    warn(string.format("[D4rpHub] Raid sélectionné: %s | Lv%d | Drop: %s", r.name, r.lvl, r.drop))
+                    if BF_Ready then
+                        warn(string.format("[D4rpHub] Raid sélectionné: %s | Lv%d | Drop: %s", r.name, r.lvl, r.drop))
+                    end
                     break
                 end
             end
@@ -3307,11 +3307,17 @@ do -- Blox Fruits Tab (toujours actif)
             for _, p in next, BF_Players:GetPlayers() do
                 if p ~= BF_LP then table.insert(names, p.Name) end
             end
-            if #names == 0 then names = {"(aucun joueur)"}  end
+            if #names == 0 then table.insert(names, "(aucun joueur)") end
             return names
         end)(),
-        Default = "none",
+        Default = (function()
+            for _, p in next, BF_Players:GetPlayers() do
+                if p ~= BF_LP then return p.Name end
+            end
+            return "(aucun joueur)"
+        end)(),
         Callback = function(Value)
+            if Value == "(aucun joueur)" then return end
             BF_PvpTarget = BF_Players:FindFirstChild(Value)
             if BF_PvpTarget then
                 warn("[D4rpHub] PVP cible: " .. Value)
@@ -3697,6 +3703,9 @@ do -- Blox Fruits Tab (toujours actif)
             warn("[D4rpHub] ===== FIN SCAN =====")
         end
     })
+
+    -- Activer les callbacks des dropdowns BF (bloqués pendant le chargement)
+    task.defer(function() BF_Ready = true end)
 end
 
 getgenv().D4rpHubLoaded = true
