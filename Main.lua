@@ -226,10 +226,8 @@ local _ESP = MainFrame:Tab("ESP")
 local _Crosshair = MainFrame:Tab("Crosshair")
 local Settings = MainFrame:Tab("Settings")
 
-local BF_Tab = nil
-if CurrentGame == "Blox Fruits" then
-    BF_Tab = MainFrame:Tab("🍊 Blox Fruits")
-end
+-- Onglet Blox Fruits toujours visible
+local BF_Tab = MainFrame:Tab("🍊 Blox Fruits")
 
 
 local AddValues = function(Section, Object, Exceptions, Prefix)
@@ -1925,7 +1923,7 @@ MiscSection:Button({
 })
 
 
-if BF_Tab then
+do -- Blox Fruits Tab (toujours actif)
     local BF_Players = game:GetService("Players")
     local BF_LP = BF_Players.LocalPlayer
     local BF_RS = game:GetService("RunService")
@@ -1972,6 +1970,43 @@ if BF_Tab then
     local BF_MobCache = {}
     local BF_MobCacheTime = 0
     local BF_MOB_CACHE_TTL = 0.8  -- secondes
+
+    -- Recherche dynamique d'un boss/NPC par keyword (partial match, case-insensitive)
+    -- Priorité: correspondance exacte > correspondance partielle
+    local function findEntityByKeyword(keyword)
+        if not keyword then return nil end
+        local kw = keyword:lower()
+        local exactMatch, partialMatch = nil, nil
+        for _, obj in next, workspace:GetDescendants() do
+            if obj:IsA("Model") then
+                local n = obj.Name:lower()
+                if n == kw then
+                    -- Correspondance exacte: vérifier qu'il est vivant ou pas de humanoid
+                    local hum = obj:FindFirstChildOfClass("Humanoid")
+                    if not hum or hum.Health > 0 then
+                        exactMatch = obj; break
+                    end
+                elseif not partialMatch and n:find(kw, 1, true) then
+                    local hum = obj:FindFirstChildOfClass("Humanoid")
+                    if not hum or hum.Health > 0 then
+                        partialMatch = obj
+                    end
+                end
+            end
+        end
+        return exactMatch or partialMatch
+    end
+
+    -- Trouve la position d'un objet (Model ou BasePart)
+    local function getEntityPos(obj)
+        if not obj then return nil end
+        if obj:IsA("BasePart") then return obj.Position end
+        local root = obj:FindFirstChild("HumanoidRootPart")
+        if root then return root.Position end
+        local part = obj:FindFirstChildOfClass("BasePart")
+        if part then return part.Position end
+        return nil
+    end
 
     local function refreshMobCache()
         local now = tick()
@@ -2656,17 +2691,19 @@ if BF_Tab then
         if not root then return end
         for _, b in next, BF_AllBosses[seaKey] do
             if b.name == bossName then
-                local bossModel = workspace:FindFirstChild(b.name, true)
+                -- 1) Cherche d'abord dynamiquement dans workspace (résistant aux updates)
+                local bossModel = findEntityByKeyword(b.name)
                 if bossModel then
-                    local br = bossModel:FindFirstChild("HumanoidRootPart")
-                    if br then
-                        root.CFrame = CFrame.new(br.Position + Vector3.new(0, 5, 0))
-                        warn("[D4rpHub] TP boss actif: " .. b.name .. " | Drop: " .. b.drop)
+                    local bPos = getEntityPos(bossModel)
+                    if bPos then
+                        root.CFrame = CFrame.new(bPos + Vector3.new(0, 5, 0))
+                        warn("[D4rpHub] ✅ TP boss actif: " .. b.name .. " | Drop: " .. b.drop)
                         return
                     end
                 end
+                -- 2) Fallback: position hardcodée (spawn connu)
                 root.CFrame = CFrame.new(b.pos + Vector3.new(0, 5, 0))
-                warn("[D4rpHub] TP spawn: " .. b.name .. " (Lv." .. b.lvl .. ") | Drop: " .. b.drop)
+                warn("[D4rpHub] TP spawn (pos fixe): " .. b.name .. " (Lv." .. b.lvl .. ") | Drop: " .. b.drop)
                 return
             end
         end
@@ -2822,11 +2859,12 @@ if BF_Tab then
                     local targetBoss, island = getBossForQuest(questName)
                     if not targetBoss then task.wait(1); continue end
 
-                    -- 1) Accepter la quête via NPC (cherche dans workspace)
+                    -- 1) Accepter la quête via NPC (cherche dynamiquement dans workspace)
                     local questNpc = nil
                     for _, entry in next, BF_QuestFlat do
                         if entry.quest.name == questName then
-                            questNpc = workspace:FindFirstChild(entry.quest.npc, true)
+                            -- Cherche d'abord exact, puis partial match
+                            questNpc = findEntityByKeyword(entry.quest.npc)
                             break
                         end
                     end
@@ -2847,24 +2885,25 @@ if BF_Tab then
                         task.wait(0.5)
                     end
 
-                    -- 2) Kill le boss cible
-                    local bossModel = workspace:FindFirstChild(targetBoss, true)
+                    -- 2) Kill le boss cible (détection dynamique)
+                    local bossModel = findEntityByKeyword(targetBoss)
                     if bossModel then
                         local bHum = bossModel:FindFirstChildOfClass("Humanoid")
                         if bHum and bHum.Health > 0 then
                             BF_Attack(bossModel)
                         else
-                            -- Boss mort: attend respawn 5-10s
+                            -- Boss mort: attend respawn
                             warn("[D4rpHub] Boss mort, respawn dans 5s: " .. targetBoss)
                             task.wait(5)
                         end
                     else
-                        -- Boss pas encore spawn: TP sur l'île
+                        -- Boss pas encore spawn: TP sur l'île et attendre
                         local idata = BF_MobsByIsland[island]
                         if idata then
                             local root = getBFRoot()
                             if root then root.CFrame = CFrame.new(idata.pos + Vector3.new(0,5,0)) end
                         end
+                        warn("[D4rpHub] Quest: " .. targetBoss .. " pas spawn, attente sur île...")
                         task.wait(4)
                     end
 
@@ -2926,7 +2965,7 @@ if BF_Tab then
                             local h = getBFHum()
                             if not h or h.Health <= 0 then task.wait(3); continue end
                             if BF_AutoHealEnabled then BF_AutoHeal() end
-                            local bm = workspace:FindFirstChild(targetBoss, true)
+                            local bm = findEntityByKeyword(targetBoss)
                             if bm then
                                 local bh = bm:FindFirstChildOfClass("Humanoid")
                                 if bh and bh.Health > 0 then
@@ -2999,12 +3038,12 @@ if BF_Tab then
         Callback = function()
             local root = getBFRoot()
             if not root or not BF_SelectedRaid then return end
-            local bm = workspace:FindFirstChild(BF_SelectedRaid.keyword, true)
+            local bm = findEntityByKeyword(BF_SelectedRaid.keyword)
             if bm then
-                local br = bm:FindFirstChild("HumanoidRootPart")
-                if br then
-                    root.CFrame = CFrame.new(br.Position + Vector3.new(0,5,0))
-                    warn("[D4rpHub] TP raid boss actif: " .. BF_SelectedRaid.name)
+                local bPos = getEntityPos(bm)
+                if bPos then
+                    root.CFrame = CFrame.new(bPos + Vector3.new(0,5,0))
+                    warn("[D4rpHub] ✅ TP raid boss actif: " .. BF_SelectedRaid.name)
                     return
                 end
             end
@@ -3027,7 +3066,7 @@ if BF_Tab then
                     if not hum or hum.Health <= 0 then task.wait(3); continue end
                     if BF_AutoHealEnabled then BF_AutoHeal() end
                     if not BF_SelectedRaid then task.wait(1); continue end
-                    local bm = workspace:FindFirstChild(BF_SelectedRaid.keyword, true)
+                    local bm = findEntityByKeyword(BF_SelectedRaid.keyword)
                     if bm then
                         local bh = bm:FindFirstChildOfClass("Humanoid")
                         if bh and bh.Health > 0 then
@@ -3060,7 +3099,7 @@ if BF_Tab then
                     local hum = getBFHum()
                     if not hum or hum.Health <= 0 then task.wait(3); continue end
                     if BF_AutoHealEnabled then BF_AutoHeal() end
-                    local boss = workspace:FindFirstChild("rip_indra", true)
+                    local boss = findEntityByKeyword("rip_indra")
                     if boss then
                         local bh = boss:FindFirstChildOfClass("Humanoid")
                         if bh and bh.Health > 0 then
@@ -3432,6 +3471,57 @@ if BF_Tab then
                     warn("[D4rpHub] Remote: " .. obj:GetFullName())
                 end
             end
+            warn("[D4rpHub] ===== FIN SCAN =====")
+        end
+    })
+
+    BF_MiscSection:Button({
+        Name = "Scan Mobs/Boss (workspace)",
+        Callback = function()
+            warn("[D4rpHub] ===== SCAN ENTITÉS =====")
+            local root = getBFRoot()
+            local count = 0
+            for _, obj in next, workspace:GetDescendants() do
+                if obj:IsA("Model") then
+                    local hum = obj:FindFirstChildOfClass("Humanoid")
+                    if hum and hum.MaxHealth > 0 and not BF_Players:FindFirstChild(obj.Name) then
+                        local r = obj:FindFirstChild("HumanoidRootPart")
+                        local dist = root and r and math.floor((r.Position - root.Position).Magnitude) or "?"
+                        warn(string.format("[D4rpHub] MOB: %s | HP: %.0f/%.0f | Dist: %s", obj.Name, hum.Health, hum.MaxHealth, tostring(dist)))
+                        count = count + 1
+                        if count >= 30 then warn("[D4rpHub] (30 premiers affichés)"); break end
+                    end
+                end
+            end
+            if count == 0 then warn("[D4rpHub] Aucun mob/boss détecté dans workspace.") end
+            warn("[D4rpHub] ===== FIN SCAN (" .. count .. " entités) =====")
+        end
+    })
+
+    BF_MiscSection:Button({
+        Name = "Chercher Boss par mot-clé",
+        Callback = function()
+            -- Affiche un résumé de tous les boss trouvés dynamiquement
+            warn("[D4rpHub] ===== SCAN BOSS CONNUS =====")
+            local found, missing = 0, 0
+            local allBossNames = {}
+            for _, sea in next, BF_AllBosses do
+                for _, b in next, sea do
+                    table.insert(allBossNames, b.name)
+                end
+            end
+            for _, bn in next, allBossNames do
+                local bm = findEntityByKeyword(bn)
+                if bm then
+                    local bh = bm:FindFirstChildOfClass("Humanoid")
+                    local hp = bh and string.format("%.0f/%.0f HP", bh.Health, bh.MaxHealth) or "no Humanoid"
+                    warn("[D4rpHub] ✅ " .. bn .. " → " .. bm.Name .. " (" .. hp .. ")")
+                    found = found + 1
+                else
+                    missing = missing + 1
+                end
+            end
+            warn(string.format("[D4rpHub] Résultat: %d présents, %d absents (pas spawn/différent nom)", found, missing))
             warn("[D4rpHub] ===== FIN SCAN =====")
         end
     })
